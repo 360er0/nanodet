@@ -16,7 +16,7 @@ import argparse
 import os
 
 import onnx
-import onnxsim
+import onnxslim
 import torch
 
 from nanodet.model.arch import build_model
@@ -53,20 +53,18 @@ def main(config, model_path, output_path, input_shape=(320, 320)):
         output_path,
         verbose=True,
         keep_initializers_as_inputs=True,
-        opset_version=11,
+        opset_version=17,
         input_names=["data"],
         output_names=["output"],
+        dynamo=False,
+        external_data=False,
     )
     logger.log("finished exporting onnx ")
 
     logger.log("start simplifying onnx ")
-    input_data = {"data": dummy_input.detach().cpu().numpy()}
-    model_sim, flag = onnxsim.simplify(output_path, input_data=input_data)
-    if flag:
-        onnx.save(model_sim, output_path)
-        logger.log("simplify onnx successfully")
-    else:
-        logger.log("simplify onnx failed")
+    model = onnx.load(output_path)
+    slimmed_model = onnxslim.slim(model)
+    onnx.save(slimmed_model, output_path)
 
 
 def parse_args():

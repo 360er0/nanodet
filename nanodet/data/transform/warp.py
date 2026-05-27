@@ -19,6 +19,28 @@ from typing import Dict, Optional, Tuple
 import cv2
 import numpy as np
 
+INTERPOLATION_FLAGS = {
+    "nearest": cv2.INTER_NEAREST,
+    "linear": cv2.INTER_LINEAR,
+    "cubic": cv2.INTER_CUBIC,
+    "area": cv2.INTER_AREA,
+    "lanczos4": cv2.INTER_LANCZOS4,
+}
+
+
+def get_interpolation_flag(interpolation):
+    if isinstance(interpolation, str):
+        key = interpolation.lower().replace("cv2.", "").replace("inter_", "")
+        if key not in INTERPOLATION_FLAGS:
+            valid = ", ".join(sorted(INTERPOLATION_FLAGS))
+            raise ValueError(
+                "Unknown interpolation '{}'. Expected one of: {}.".format(
+                    interpolation, valid
+                )
+            )
+        return INTERPOLATION_FLAGS[key]
+    return int(interpolation)
+
 
 def get_flip_matrix(prob=0.5):
     F = np.eye(3)
@@ -179,7 +201,10 @@ def warp_and_resize(
     # M = T @ Sh @ R @ Str @ P @ C
     ResizeM = get_resize_matrix((width, height), dst_shape, keep_ratio)
     M = ResizeM @ M
-    img = cv2.warpPerspective(raw_img, M, dsize=tuple(dst_shape))
+    interpolation = get_interpolation_flag(warp_kwargs.get("interpolation", "linear"))
+    img = cv2.warpPerspective(
+        raw_img, M, dsize=tuple(dst_shape), flags=interpolation
+    )
     meta["img"] = img
     meta["warp_matrix"] = M
     if "gt_bboxes" in meta:
@@ -187,7 +212,9 @@ def warp_and_resize(
         meta["gt_bboxes"] = warp_boxes(boxes, M, dst_shape[0], dst_shape[1])
     if "gt_masks" in meta:
         for i, mask in enumerate(meta["gt_masks"]):
-            meta["gt_masks"][i] = cv2.warpPerspective(mask, M, dsize=tuple(dst_shape))
+            meta["gt_masks"][i] = cv2.warpPerspective(
+                mask, M, dsize=tuple(dst_shape), flags=cv2.INTER_NEAREST
+            )
 
     # TODO: keypoints
     # if 'gt_keypoints' in meta:
@@ -287,6 +314,7 @@ class ShapeTransform:
         shear: float = 0.0,
         translate: float = 0.0,
         flip: float = 0.0,
+        interpolation: str = "linear",
         **kwargs
     ):
         self.keep_ratio = keep_ratio
@@ -298,6 +326,7 @@ class ShapeTransform:
         self.shear_degree = shear
         self.flip_prob = flip
         self.translate_ratio = translate
+        self.interpolation = get_interpolation_flag(interpolation)
 
     def __call__(self, meta_data, dst_shape):
         raw_img = meta_data["img"]
@@ -337,7 +366,9 @@ class ShapeTransform:
 
         ResizeM = get_resize_matrix((width, height), dst_shape, self.keep_ratio)
         M = ResizeM @ M
-        img = cv2.warpPerspective(raw_img, M, dsize=tuple(dst_shape))
+        img = cv2.warpPerspective(
+            raw_img, M, dsize=tuple(dst_shape), flags=self.interpolation
+        )
         meta_data["img"] = img
         meta_data["warp_matrix"] = M
         if "gt_bboxes" in meta_data:
@@ -346,7 +377,7 @@ class ShapeTransform:
         if "gt_masks" in meta_data:
             for i, mask in enumerate(meta_data["gt_masks"]):
                 meta_data["gt_masks"][i] = cv2.warpPerspective(
-                    mask, M, dsize=tuple(dst_shape)
+                    mask, M, dsize=tuple(dst_shape), flags=cv2.INTER_NEAREST
                 )
 
         return meta_data
